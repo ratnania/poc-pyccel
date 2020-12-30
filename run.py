@@ -19,6 +19,7 @@ from pyccel.ast.operators import PyccelFloorDiv
 from pyccel.ast.builtins  import PythonInt
 from pyccel.ast.builtins  import PythonRange
 from pyccel.ast.literals  import LiteralInteger
+from pyccel.codegen.printing.pycode import pycode
 
 # **********************************************************************************
 def _extract_loop(expr, index):
@@ -41,72 +42,43 @@ def _extract_loop(expr, index):
 
 # **********************************************************************************
 def split(expr, index, size):
-    if isinstance(expr, FunctionDef):
-        f = expr
-        body = split(f.body, index, size)
-        return FunctionDef( f.name,
-                            f.arguments,
-                            f.results,
-                            body,
-                            local_vars=f.local_vars,
-                            global_vars=f.global_vars,
-                            imports=f.imports,
-                            decorators=f.decorators,
-                            headers=f.headers,
-                            templates=f.templates,
-                            is_recursive=f.is_recursive,
-                            is_pure=f.is_pure,
-                            is_elemental=f.is_elemental,
-                            is_private=f.is_private,
-                            is_header=f.is_header,
-                            arguments_inout=f.arguments_inout,
-                            functions=f.functions,
-                            interfaces=f.interfaces,
-                            doc_string=f.doc_string )
+    if not isinstance(expr, For):
+        raise TypeError('Expecting a For')
 
-    elif isinstance(expr, CodeBlock):
-        expr = [split(a, index, size) for a in expr.body]
-        return CodeBlock(expr)
+    target = expr.target
+    body   = expr.body
+    if not (target.name == index):
+        raise ValueError('Expecting {} as index'.format(index))
 
-    elif isinstance(expr, For):
-        target = expr.target
-        body   = expr.body
-        if target.name == index:
-            iterable = expr.iterable
-            if isinstance(iterable, PythonRange):
-                start = iterable.start
-                stop  = iterable.stop
-                step  = iterable.step
+    iterable = expr.iterable
+    if isinstance(iterable, PythonRange):
+        start = iterable.start
+        stop  = iterable.stop
+        step  = iterable.step
 
 #                if not( step == 1 ):
 #                    raise NotImplementedError('Only step = 1 is handled')
 
-                inner = Variable('int', 'inner_{}'.format(target.name))
-                outer = Variable('int', 'outer_{}'.format(target.name))
+        inner = Variable('int', 'inner_{}'.format(target.name))
+        outer = Variable('int', 'outer_{}'.format(target.name))
 
-                inner_range = PythonRange(0, size, 1) # TODO what about step?
-                body = CodeBlock([Assign(target, inner+size*outer), body])
-                inner_loop = For(inner, inner_range, body)
+        inner_range = PythonRange(0, size, 1) # TODO what about step?
+        body = CodeBlock([Assign(target, inner+size*outer), body])
+        inner_loop = For(inner, inner_range, body)
 
-                new_stop = Variable('int', 'stop_{}'.format(outer.name))
+        new_stop = Variable('int', 'stop_{}'.format(outer.name))
 
-                assign_tmp = Assign(new_stop,  size-1+stop)
-                assign_stop = Assign(new_stop,  PyccelFloorDiv(new_stop, LiteralInteger(size)) )
-                outer_range = PythonRange(start, new_stop, step)
-                outer_loop = For(outer, outer_range, [inner_loop])
+        assign_tmp = Assign(new_stop,  size-1+stop)
+        assign_stop = Assign(new_stop,  PyccelFloorDiv(new_stop, LiteralInteger(size)) )
+        outer_range = PythonRange(start, new_stop, step)
+        outer_loop = For(outer, outer_range, [inner_loop])
 
-                body = CodeBlock([assign_tmp, assign_stop, outer_loop])
+        body = CodeBlock([assign_tmp, assign_stop, outer_loop])
 
-                return body
-
-            else:
-                raise TypeError('Not yet available')
-
-        else:
-            return split(expr.body, index, size)
+        return body
 
     else:
-        raise NotImplementedError('TODO {}'.format(type(expr)))
+        raise TypeError('Not yet available')
 
 
 # **********************************************************************************
@@ -190,7 +162,15 @@ def transform(fname, **kwargs):
 def test_split_1(fname, **kwargs):
     T = Transform(fname)
     loop = T.extract_loop(index='i')
-    print(loop)
+
+    print('****************** BEFORE ******************')
+    code = pycode(loop)
+    print(code)
+
+    print('****************** AFTER  ******************')
+    loop = split(loop, 'i', 16)
+    code = pycode(loop)
+    print(code)
 
 # **********************************************************************************
 from pyccel.parser.utilities import read_file
@@ -215,5 +195,5 @@ def run_tests():
 
 ######################
 if __name__ == '__main__':
-    run_tests()
+#    run_tests()
     test_split_1('scripts/ex1.py')
