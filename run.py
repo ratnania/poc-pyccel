@@ -24,7 +24,9 @@ from pyccel.ast.core import Assign
 from pyccel.ast.core import CodeBlock
 from pyccel.ast.core import FunctionDef
 from pyccel.ast.operators import PyccelFloorDiv
+from pyccel.ast.builtins  import PythonInt
 from pyccel.ast.builtins  import PythonRange
+from pyccel.ast.literals  import LiteralInteger
 
 
 # **********************************************************************************
@@ -51,12 +53,12 @@ def split(expr, index, size):
 
                 new_stop = Variable('int', 'stop_{}'.format(outer.name))
 
-#                assign_stop = Assign(new_stop,  PyccelFloorDiv(size-1+stop, size) ) # TODO not working
-                assign_stop = Assign(new_stop, (size-1+stop) / size)
+                assign_tmp = Assign(new_stop,  size-1+stop)
+                assign_stop = Assign(new_stop,  PyccelFloorDiv(new_stop, LiteralInteger(size)) )
                 outer_range = PythonRange(start, new_stop, step)
                 outer_loop = For(outer, outer_range, [inner_loop])
 
-                body = CodeBlock([assign_stop, outer_loop])
+                body = CodeBlock([assign_tmp, assign_stop, outer_loop])
 
                 return body
 
