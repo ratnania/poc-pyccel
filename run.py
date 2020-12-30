@@ -15,6 +15,24 @@ from pyccel.ast.builtins  import PythonInt
 from pyccel.ast.builtins  import PythonRange
 from pyccel.ast.literals  import LiteralInteger
 
+# **********************************************************************************
+def _extract_loop(expr, index):
+    if not isinstance(expr, FunctionDef):
+        raise TypeError('expr must be a FunctionDef.')
+
+    if not isinstance(index, str):
+        raise TypeError('index must be a string.')
+
+    body = expr.body
+    # body is a CodeBlock
+
+    for expr in body.body:
+        if isinstance(expr, For):
+            if expr.target.name == index:
+                return expr
+
+    raise ValueError('expr does not have any loop with target = {}'.format(index))
+
 
 # **********************************************************************************
 def split(expr, index, size):
@@ -100,25 +118,59 @@ class SplitLoop(object):
     def size(self):
         return self._size
 
-def py2py(fname, **kwargs):
+# **********************************************************************************
+class Transform(object):
+    def __init__(self, filename):
+        self._filename = filename
 
-    # ... run the semantic stage
-    pyccel = Parser(fname)
-    ast = pyccel.parse()
+        # ... run the semantic stage
+        pyccel = Parser(filename)
+        ast = pyccel.parse()
 
-    settings = {}
-    ast = pyccel.annotate(**settings)
+        settings = {}
+        ast = pyccel.annotate(**settings)
 
-    name = os.path.basename(fname)
-    name = os.path.splitext(name)[0]
+        name = os.path.basename(filename)
+        name = os.path.splitext(name)[0]
 
-    codegen = Codegen(ast, name)
-    if not( len( codegen.expr.funcs ) == 1 ):
-        raise ValueError('Expecting one single function')
+        codegen = Codegen(ast, name)
+        if not( len( codegen.expr.funcs ) == 1 ):
+            raise ValueError('Expecting one single function')
 
-    f = codegen.expr.funcs[0]
+        self._func = codegen.expr.funcs[0]
+        self._codegen = codegen
+
+        # reset Errors singleton
+        errors = Errors()
+        errors.reset()
+
+    @property
+    def codegen(self):
+        return self._codegen
+
+    @property
+    def func(self):
+        return self._func
+
+    def update(self, func):
+        self._codegen.expr.funcs[0] = func
+
+    def extract_loop(self, index):
+        return _extract_loop(self.func, index)
+
+    def doprint(self, language='python'):
+        return self.codegen.doprint(language=language)
+
+# **********************************************************************************
+def transform(fname, **kwargs):
+    # ...
+    T = Transform(fname)
+    f = T.func
     # ...
 
+    print(T.extract_loop(index='i'))
+
+    # ...
     transformations = kwargs.pop('transformations', [])
     for transform in transformations:
         if isinstance(transform, SplitLoop):
@@ -126,15 +178,16 @@ def py2py(fname, **kwargs):
             size = transform.size
             f = split(f, index=index, size=size)
 
-    codegen.expr.funcs[0] = f
+            T.update(f)
+    # ...
 
-    code = codegen.doprint(language='python')
+    return T.doprint()
 
-    # reset Errors singleton
-    errors = Errors()
-    errors.reset()
-
-    return code
+# **********************************************************************************
+def test_split_1(fname, **kwargs):
+    T = Transform(fname)
+    loop = T.extract_loop(index='i')
+    print(loop)
 
 # **********************************************************************************
 from pyccel.parser.utilities import read_file
@@ -158,10 +211,11 @@ def run_tests():
         code = read_file(fname)
         print('****************** BEFORE ******************')
         print(code)
-        code = py2py(fname, transformations=[SplitLoop('i', 16)])
+        code = transform(fname, transformations=[SplitLoop('i', 16)])
         print('****************** AFTER  ******************')
         print(code)
 
 ######################
 if __name__ == '__main__':
-    run_tests()
+#    run_tests()
+    test_split_1('scripts/ex1.py')
