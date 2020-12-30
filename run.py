@@ -4,7 +4,12 @@
 # Note that we need to change the directory for tests involving the import
 # statement
 
-# **********************************************************************************
+import os
+
+from pyccel.parser.parser   import Parser
+from pyccel.codegen.codegen import Codegen
+from pyccel.errors.errors   import Errors
+
 from pyccel.ast.core import Variable
 from pyccel.ast.core import For
 from pyccel.ast.core import Assign
@@ -168,8 +173,6 @@ def transform(fname, **kwargs):
     f = T.func
     # ...
 
-    print(T.extract_loop(index='i'))
-
     # ...
     transformations = kwargs.pop('transformations', [])
     for transform in transformations:
@@ -191,11 +194,6 @@ def test_split_1(fname, **kwargs):
 
 # **********************************************************************************
 from pyccel.parser.utilities import read_file
-from pyccel.parser.parser   import Parser
-from pyccel.codegen.codegen import Codegen
-from pyccel.errors.errors   import Errors
-
-import os
 
 def run_tests():
     # ...
@@ -217,5 +215,5 @@ def run_tests():
 
 ######################
 if __name__ == '__main__':
-#    run_tests()
+    run_tests()
     test_split_1('scripts/ex1.py')
