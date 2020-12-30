@@ -41,7 +41,7 @@ def _extract_loop(expr, index):
 
 
 # **********************************************************************************
-def split(expr, index, size):
+def split(expr, index, size, inner_unroll=False):
     if not isinstance(expr, For):
         raise TypeError('Expecting a For')
 
@@ -52,26 +52,38 @@ def split(expr, index, size):
 
     iterable = expr.iterable
     if isinstance(iterable, PythonRange):
+        # TODO use the same code as in unroll
         start = iterable.start
         stop  = iterable.stop
         step  = iterable.step
 
-#                if not( step == 1 ):
-#                    raise NotImplementedError('Only step = 1 is handled')
+        if not( step.python_value == 1 ):
+            raise NotImplementedError('Only step = 1 is handled')
 
         inner = Variable('int', 'inner_{}'.format(target.name))
         outer = Variable('int', 'outer_{}'.format(target.name))
 
         inner_range = PythonRange(0, size, 1) # TODO what about step?
-        body = CodeBlock([Assign(target, inner+size*outer), body])
+        new_body = []
+        # body is supposed to be CodeBlock
+        for stmt in body.body:
+            new = stmt.subs(target, inner+size*outer)
+            new_body.append(new)
+
+        body = CodeBlock(new_body)
         inner_loop = For(inner, inner_range, body)
+
+        if inner_unroll:
+            inner_loop = unroll(inner_loop)
+        else:
+            inner_loop = [inner_loop]
 
         new_stop = Variable('int', 'stop_{}'.format(outer.name))
 
         assign_tmp = Assign(new_stop,  size-1+stop)
         assign_stop = Assign(new_stop,  PyccelFloorDiv(new_stop, LiteralInteger(size)) )
         outer_range = PythonRange(start, new_stop, step)
-        outer_loop = For(outer, outer_range, [inner_loop])
+        outer_loop = For(outer, outer_range, inner_loop)
 
         body = CodeBlock([assign_tmp, assign_stop, outer_loop])
 
@@ -80,6 +92,59 @@ def split(expr, index, size):
     else:
         raise TypeError('Not yet available')
 
+# **********************************************************************************
+def unroll(expr):
+    iterable = expr.iterable
+    target = expr.target
+
+    if not isinstance(iterable, PythonRange):
+        raise TypeError('Expecting PythonRange')
+
+    start = iterable.start
+    stop  = iterable.stop
+    step  = iterable.step
+
+    # ...
+    if isinstance(start, LiteralInteger):
+        if not( start.python_value == 0 ):
+            raise NotImplementedError('Only start = 0 is handled')
+
+        start = start.python_value
+
+    elif not isinstance(start, int):
+        raise TypeError('Expecting LiteralInteger or int')
+    # ...
+
+    # ...
+    if isinstance(step, LiteralInteger):
+        if not( step.python_value == 1 ):
+            raise NotImplementedError('Only step = 1 is handled')
+
+        step = step.python_value
+
+    elif not isinstance(step, int):
+        raise TypeError('Expecting LiteralInteger or int')
+    # ...
+
+    # ...
+    if isinstance(stop, LiteralInteger):
+        stop = stop.python_value
+
+    elif not isinstance(stop, int):
+        raise TypeError('Expecting LiteralInteger or int')
+    # ...
+
+    stmts = expr.body.body # this is a CodeBlock
+
+    body = []
+    for stmt in stmts:
+        print('>>>>> ', stmt)
+        for i in range(start, stop, step):
+            new = stmt.subs(target, target+i)
+            body.append(new)
+
+    body = CodeBlock(body)
+    return body
 
 # **********************************************************************************
 class SplitLoop(object):
@@ -173,6 +238,34 @@ def test_split_1(fname, **kwargs):
     print(code)
 
 # **********************************************************************************
+def test_split_unroll_1(fname, **kwargs):
+    T = Transform(fname)
+    loop = T.extract_loop(index='i')
+
+    print('****************** BEFORE ******************')
+    code = pycode(loop)
+    print(code)
+
+    print('****************** AFTER  ******************')
+    loop = split(loop, 'i', 4, inner_unroll=True)
+    code = pycode(loop)
+    print(code)
+
+# **********************************************************************************
+def test_unroll_1(fname, **kwargs):
+    T = Transform(fname)
+    loop = T.extract_loop(index='i')
+
+    print('****************** BEFORE ******************')
+    code = pycode(loop)
+    print(code)
+
+    print('****************** AFTER  ******************')
+    loop = unroll(loop)
+    code = pycode(loop)
+    print(code)
+
+# **********************************************************************************
 from pyccel.parser.utilities import read_file
 
 def run_tests():
@@ -196,4 +289,6 @@ def run_tests():
 ######################
 if __name__ == '__main__':
 #    run_tests()
-    test_split_1('scripts/ex1.py')
+#    test_split_1('scripts/ex1.py')
+    test_split_unroll_1('scripts/ex1.py')
+#    test_unroll_1('scripts/ex2.py')
