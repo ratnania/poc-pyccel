@@ -106,9 +106,6 @@ def unroll(expr):
 
     # ...
     if isinstance(start, LiteralInteger):
-        if not( start.python_value == 0 ):
-            raise NotImplementedError('Only start = 0 is handled')
-
         start = start.python_value
 
     elif not isinstance(start, int):
@@ -117,9 +114,6 @@ def unroll(expr):
 
     # ...
     if isinstance(step, LiteralInteger):
-        if not( step.python_value == 1 ):
-            raise NotImplementedError('Only step = 1 is handled')
-
         step = step.python_value
 
     elif not isinstance(step, int):
@@ -138,7 +132,6 @@ def unroll(expr):
 
     body = []
     for stmt in stmts:
-        print('>>>>> ', stmt)
         for i in range(start, stop, step):
             new = stmt.subs(target, target+i)
             body.append(new)
