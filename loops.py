@@ -5,6 +5,7 @@
 # statement
 
 import os
+from collections import OrderedDict
 
 from sympy import Tuple
 from sympy.core.expr          import Expr
@@ -22,6 +23,7 @@ from pyccel.ast.core import Return
 from pyccel.ast.core import Assign
 from pyccel.ast.core import CodeBlock
 from pyccel.ast.core import FunctionDef
+from pyccel.ast.core import EmptyNode
 from pyccel.ast.operators import PyccelFloorDiv
 from pyccel.ast.builtins  import PythonInt
 from pyccel.ast.builtins  import PythonRange
@@ -157,7 +159,7 @@ def _split(expr, index, size, inner_unroll=False):
     elif isinstance(expr, FunctionDef):
         return _split_FunctionDef(expr, index, size, inner_unroll=inner_unroll)
 
-    elif isinstance(expr, Assign):
+    elif isinstance(expr, (Assign, EmptyNode)):
         return expr
 
     else:
@@ -267,8 +269,19 @@ class Transform(object):
     def doprint(self, language='python'):
         return self.codegen.doprint(language=language)
 
-    def split(self, index, size, inner_unroll=False):
-        return _split(self.func, index, size, inner_unroll=inner_unroll)
+    def split(self, *args):
+        for a in args:
+            assert(isinstance(a, (dict, OrderedDict)))
+
+        expr = self.func
+        for d in args:
+            index        = d['index']
+            size         = d['size']
+            inner_unroll = d['inner_unroll']
+
+            expr = _split(expr, index, size, inner_unroll=inner_unroll)
+
+        return expr
 
 # **********************************************************************************
 def test_split_loop(fname, **kwargs):
@@ -303,7 +316,7 @@ def test_split_rank_1(fname, **kwargs):
     inner_unroll = kwargs.pop('inner_unroll', False)
 
     T = Transform(fname)
-    f = T.split(index='i', size=4, inner_unroll=inner_unroll)
+    f = T.split({'index': 'i', 'size': 4, 'inner_unroll': inner_unroll})
 
     print('****************** BEFORE ******************')
     code = pycode(T.func)
@@ -315,20 +328,17 @@ def test_split_rank_1(fname, **kwargs):
 
 # **********************************************************************************
 def test_split_rank_2(fname, **kwargs):
+
     T = Transform(fname)
+    f = T.split({'index': 'i', 'size': 8, 'inner_unroll': False},
+                {'index': 'j', 'size': 4, 'inner_unroll': False})
 
     print('****************** BEFORE ******************')
     code = pycode(T.func)
     print(code)
 
-    print('****************** SPLIT i *****************')
-    loop = T.extract_loop(index='i')
-    loop = _split(loop, 'i', 8)
-    code = pycode(loop)
-    print(code)
-    print('****************** SPLIT j *****************')
-    loop = _split(loop, 'j', 4)
-    code = pycode(loop)
+    print('****************** AFTER  ******************')
+    code = pycode(f)
     print(code)
 
 # **********************************************************************************
@@ -352,8 +362,10 @@ def run_tests():
 ######################
 if __name__ == '__main__':
 #    run_tests()
+
 #    test_split_loop('scripts/ex1.py')
 #    test_unroll_loop('scripts/ex1.py')
+
 #    test_split_rank_1('scripts/ex1.py')
 #    test_split_rank_1('scripts/ex1.py', inner_unroll=True)
     test_split_rank_2('scripts/ex3.py')
