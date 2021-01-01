@@ -72,7 +72,7 @@ def _extract_loop(expr, index):
 # **********************************************************************************
 def _split_For(expr, index, size, inner_unroll=False):
     if not (expr.target.name == index):
-        body = split(expr.body, index, size, inner_unroll=inner_unroll)
+        body = _split(expr.body, index, size, inner_unroll=inner_unroll)
         return For(expr.target, expr.iterable, body)
 
     target = expr.target
@@ -117,18 +117,45 @@ def _split_For(expr, index, size, inner_unroll=False):
 def _split_CodeBlock(expr, index, size, inner_unroll=False):
     body = []
     for stmt in expr.body:
-        new = split(stmt, index, size, inner_unroll=inner_unroll)
+        new = _split(stmt, index, size, inner_unroll=inner_unroll)
         body.append(new)
 
     return CodeBlock(body)
 
 # **********************************************************************************
-def split(expr, index, size, inner_unroll=False):
+def _split_FunctionDef(expr, index, size, inner_unroll=False):
+    f = expr
+    body = _split(f.body, index, size, inner_unroll=inner_unroll)
+    return FunctionDef( f.name,
+                        f.arguments,
+                        f.results,
+                        body,
+                        local_vars=f.local_vars,
+                        global_vars=f.global_vars,
+                        imports=f.imports,
+                        decorators=f.decorators,
+                        headers=f.headers,
+                        templates=f.templates,
+                        is_recursive=f.is_recursive,
+                        is_pure=f.is_pure,
+                        is_elemental=f.is_elemental,
+                        is_private=f.is_private,
+                        is_header=f.is_header,
+                        arguments_inout=f.arguments_inout,
+                        functions=f.functions,
+                        interfaces=f.interfaces,
+                        doc_string=f.doc_string )
+
+# **********************************************************************************
+def _split(expr, index, size, inner_unroll=False):
     if isinstance(expr, For):
         return _split_For(expr, index, size, inner_unroll=inner_unroll)
 
     elif isinstance(expr, CodeBlock):
         return _split_CodeBlock(expr, index, size, inner_unroll=inner_unroll)
+
+    elif isinstance(expr, FunctionDef):
+        return _split_FunctionDef(expr, index, size, inner_unroll=inner_unroll)
 
     elif isinstance(expr, Assign):
         return expr
@@ -240,28 +267,11 @@ class Transform(object):
     def doprint(self, language='python'):
         return self.codegen.doprint(language=language)
 
-# **********************************************************************************
-def transform(fname, **kwargs):
-    # ...
-    T = Transform(fname)
-    f = T.func
-    # ...
-
-    # ...
-    transformations = kwargs.pop('transformations', [])
-    for transform in transformations:
-        if isinstance(transform, SplitLoop):
-            index = transform.index
-            size = transform.size
-            f = split(f, index=index, size=size)
-
-            T.update(f)
-    # ...
-
-    return T.doprint()
+    def split(self, index, size, inner_unroll=False):
+        return _split(self.func, index, size, inner_unroll=inner_unroll)
 
 # **********************************************************************************
-def test_split_1(fname, **kwargs):
+def test_split_loop(fname, **kwargs):
     T = Transform(fname)
     loop = T.extract_loop(index='i')
 
@@ -275,39 +285,7 @@ def test_split_1(fname, **kwargs):
     print(code)
 
 # **********************************************************************************
-def test_split_2(fname, **kwargs):
-    T = Transform(fname)
-    loop = T.extract_loop(index='i')
-
-    print('****************** BEFORE ******************')
-    code = pycode(loop)
-    print(code)
-
-    print('****************** SPLIT i *****************')
-    loop = split(loop, 'i', 8)
-    code = pycode(loop)
-    print(code)
-    print('****************** SPLIT j *****************')
-    loop = split(loop, 'j', 4)
-    code = pycode(loop)
-    print(code)
-
-# **********************************************************************************
-def test_split_unroll_1(fname, **kwargs):
-    T = Transform(fname)
-    loop = T.extract_loop(index='i')
-
-    print('****************** BEFORE ******************')
-    code = pycode(loop)
-    print(code)
-
-    print('****************** AFTER  ******************')
-    loop = split(loop, 'i', 4, inner_unroll=True)
-    code = pycode(loop)
-    print(code)
-
-# **********************************************************************************
-def test_unroll_1(fname, **kwargs):
+def test_unroll_loop(fname, **kwargs):
     T = Transform(fname)
     loop = T.extract_loop(index='i')
 
@@ -317,6 +295,39 @@ def test_unroll_1(fname, **kwargs):
 
     print('****************** AFTER  ******************')
     loop = unroll(loop)
+    code = pycode(loop)
+    print(code)
+
+# **********************************************************************************
+def test_split_rank_1(fname, **kwargs):
+    inner_unroll = kwargs.pop('inner_unroll', False)
+
+    T = Transform(fname)
+    f = T.split(index='i', size=4, inner_unroll=inner_unroll)
+
+    print('****************** BEFORE ******************')
+    code = pycode(T.func)
+    print(code)
+
+    print('****************** AFTER  ******************')
+    code = pycode(f)
+    print(code)
+
+# **********************************************************************************
+def test_split_rank_2(fname, **kwargs):
+    T = Transform(fname)
+
+    print('****************** BEFORE ******************')
+    code = pycode(T.func)
+    print(code)
+
+    print('****************** SPLIT i *****************')
+    loop = T.extract_loop(index='i')
+    loop = _split(loop, 'i', 8)
+    code = pycode(loop)
+    print(code)
+    print('****************** SPLIT j *****************')
+    loop = _split(loop, 'j', 4)
     code = pycode(loop)
     print(code)
 
@@ -337,14 +348,13 @@ def run_tests():
         code = read_file(fname)
         print('****************** BEFORE ******************')
         print(code)
-        code = transform(fname, transformations=[SplitLoop('i', 16)])
-        print('****************** AFTER  ******************')
-        print(code)
 
 ######################
 if __name__ == '__main__':
 #    run_tests()
-#    test_split_1('scripts/ex1.py')
-    test_split_2('scripts/ex3.py')
-#    test_split_unroll_1('scripts/ex1.py')
+#    test_split_loop('scripts/ex1.py')
+#    test_unroll_loop('scripts/ex1.py')
+#    test_split_rank_1('scripts/ex1.py')
+    test_split_rank_1('scripts/ex1.py', inner_unroll=True)
+#    test_split_rank_2('scripts/ex3.py')
 #    test_unroll_1('scripts/ex2.py')
