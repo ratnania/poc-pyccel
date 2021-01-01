@@ -203,14 +203,33 @@ def unroll(expr):
 
     stmts = expr.body.body # this is a CodeBlock
 
+    # ...
+    def _subs_index(stmt, old, new):
+        if isinstance(stmt, CodeBlock):
+            body = []
+            for i in stmt.body:
+                body.append(_subs_index(i, old, new))
+
+            return CodeBlock(body)
+
+        elif isinstance(stmt, For):
+            body = _subs_index(stmt.body, old, new)
+
+            return For(stmt.target, stmt.iterable, body)
+
+        else:
+            return stmt.subs(old, new)
+    # ...
+
     body = []
     for stmt in stmts:
         for i in range(start, stop, step):
-            new = stmt.subs(target, target+i)
+            new = _subs_index(stmt, target, i)
             body.append(new)
 
     body = CodeBlock(body)
     return body
+
 
 # **********************************************************************************
 class SplitLoop(object):
@@ -330,8 +349,9 @@ def test_split_rank_1(fname, **kwargs):
 def test_split_rank_2(fname, **kwargs):
 
     T = Transform(fname)
-    f = T.split({'index': 'i', 'size': 8, 'inner_unroll': False},
-                {'index': 'j', 'size': 4, 'inner_unroll': False})
+    f = T.split({'index': 'i', 'size': 2, 'inner_unroll': True},
+#                {'index': 'j', 'size': 4, 'inner_unroll': False})
+                {'index': 'j', 'size': 4, 'inner_unroll': True})
 
     print('****************** BEFORE ******************')
     code = pycode(T.func)
