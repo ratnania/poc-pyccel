@@ -231,18 +231,8 @@ def unroll(expr):
 
 
 # **********************************************************************************
-class SplitLoop(object):
-    def __init__(self, index, size):
-        self._index = index
-        self._size = size
-
-    @property
-    def index(self):
-        return self._index
-
-    @property
-    def size(self):
-        return self._size
+def reorder(expr, *args):
+    return expr
 
 # **********************************************************************************
 class Transform(object):
