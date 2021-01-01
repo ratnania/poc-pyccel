@@ -47,15 +47,16 @@ def test_split_rank_2(fname, **kwargs):
     print(code)
 
 # **********************************************************************************
-def test_reorder(fname, **kwargs):
+def test_reorder(fname, *args):
     T = Transform(fname)
 
     expr = T.func.body
-    expr = reorder(expr, 'j', 'i')
 
     print('****************** BEFORE ******************')
     code = pycode(T.func)
     print(code)
+
+    expr = T.reorder(*args)
 
     print('****************** AFTER  ******************')
     code = pycode(expr)
@@ -83,9 +84,11 @@ def run_tests():
 if __name__ == '__main__':
 #    run_tests()
 
-    test_split_rank_1('scripts/ex1.py', inner_unroll=False)
+#    test_split_rank_1('scripts/ex1.py', inner_unroll=False)
 #    test_split_rank_1('scripts/ex1.py', inner_unroll=True)
 #    test_split_rank_2('scripts/ex2.py', inner_unroll=False)
-    test_split_rank_2('scripts/ex2.py', inner_unroll=True)
+#    test_split_rank_2('scripts/ex2.py', inner_unroll=True)
 
-#    test_reorder('scripts/ex2.py')
+#    test_reorder('scripts/ex2.py', 'j', 'i')
+#    test_reorder('scripts/ex3.py', 'k', 'j', 'i')
+    test_reorder('scripts/ex3.py', 'k', 'i', 'j')

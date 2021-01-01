@@ -256,6 +256,9 @@ class Transform(object):
         self._func = codegen.expr.funcs[0]
         self._codegen = codegen
 
+        self._loops = {}
+        self._core = None
+
         # reset Errors singleton
         errors = Errors()
         errors.reset()
@@ -290,3 +293,70 @@ class Transform(object):
             expr = _split(expr, index, size, inner_unroll=inner_unroll)
 
         return expr
+
+    def reorder(self, *args):
+        self._flatten_loops()
+
+        body = self._reorder(*args)
+
+        f = self.func
+        return FunctionDef( f.name,
+                            f.arguments,
+                            f.results,
+                            body,
+                            local_vars=f.local_vars,
+                            global_vars=f.global_vars,
+                            imports=f.imports,
+                            decorators=f.decorators,
+                            headers=f.headers,
+                            templates=f.templates,
+                            is_recursive=f.is_recursive,
+                            is_pure=f.is_pure,
+                            is_elemental=f.is_elemental,
+                            is_private=f.is_private,
+                            is_header=f.is_header,
+                            arguments_inout=f.arguments_inout,
+                            functions=f.functions,
+                            interfaces=f.interfaces,
+                            doc_string=f.doc_string )
+
+    @property
+    def core(self):
+        return self._core
+
+    def _flatten_loops(self, expr=None):
+        if expr is None:
+            self._flatten_loops(self.func.body)
+
+        if isinstance(expr, CodeBlock):
+            for stmt in expr.body:
+                self._flatten_loops(stmt)
+
+            if not any([isinstance(stmt, For) for stmt in expr.body]):
+                self._core = expr
+
+        elif isinstance(expr, For):
+            self._loops[expr.target.name] = expr
+            self._flatten_loops(expr.body)
+
+    def _reorder(self, *args):
+
+        args = list(args)
+        flag = len(args) > 0
+
+        body = self.core
+        while flag:
+            # ...
+            if len(args) == 0:
+                flag = False
+                break
+            # ...
+
+            # pop last element of the list
+            a = args.pop()
+
+            loop = self._loops[a]
+            body = For(loop.target, loop.iterable, body)
+            body = CodeBlock([body])
+
+        return body
