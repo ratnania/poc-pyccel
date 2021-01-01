@@ -355,6 +355,6 @@ if __name__ == '__main__':
 #    test_split_loop('scripts/ex1.py')
 #    test_unroll_loop('scripts/ex1.py')
 #    test_split_rank_1('scripts/ex1.py')
-    test_split_rank_1('scripts/ex1.py', inner_unroll=True)
-#    test_split_rank_2('scripts/ex3.py')
+#    test_split_rank_1('scripts/ex1.py', inner_unroll=True)
+    test_split_rank_2('scripts/ex3.py')
 #    test_unroll_1('scripts/ex2.py')
