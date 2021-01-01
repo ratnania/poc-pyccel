@@ -6,12 +6,19 @@
 
 import os
 
+from sympy import Tuple
+from sympy.core.expr          import Expr
+
 from pyccel.parser.parser   import Parser
 from pyccel.codegen.codegen import Codegen
 from pyccel.errors.errors   import Errors
 
 from pyccel.ast.core import Variable
 from pyccel.ast.core import For
+from pyccel.ast.core import Assign
+from pyccel.ast.core import While
+from pyccel.ast.core import If
+from pyccel.ast.core import Return
 from pyccel.ast.core import Assign
 from pyccel.ast.core import CodeBlock
 from pyccel.ast.core import FunctionDef
@@ -22,34 +29,54 @@ from pyccel.ast.literals  import LiteralInteger
 from pyccel.codegen.printing.pycode import pycode
 
 # **********************************************************************************
+# TODO works with one variable for the moment
+def _subs(expr, old, new):
+    if isinstance(expr, CodeBlock):
+        body = []
+        for stmt in expr.body:
+            new_stmt = _subs(stmt, old, new)
+            body.append(new_stmt)
+
+        return CodeBlock(body)
+
+    elif isinstance(expr, For):
+        body = _subs(expr.body, old, new)
+        return For(expr.target, expr.iterable, body)
+
+    else:
+        return expr.subs(old, new)
+
+# **********************************************************************************
 def _extract_loop(expr, index):
-    if not isinstance(expr, FunctionDef):
-        raise TypeError('expr must be a FunctionDef.')
+    if isinstance(expr, FunctionDef):
+        expr = expr.body
+        # expr is a CodeBlock
+
+#    else:
+#        print(type(expr))
+#        import sys; sys.exit(0)
 
     if not isinstance(index, str):
         raise TypeError('index must be a string.')
 
-    body = expr.body
-    # body is a CodeBlock
-
-    for expr in body.body:
-        if isinstance(expr, For):
-            if expr.target.name == index:
-                return expr
+    for e in expr.body:
+        if isinstance(e, For):
+            if e.target.name == index:
+                return e
+            else:
+                return _extract_loop(e.body, index)
 
     raise ValueError('expr does not have any loop with target = {}'.format(index))
 
 
 # **********************************************************************************
-def split(expr, index, size, inner_unroll=False):
-    if not isinstance(expr, For):
-        raise TypeError('Expecting a For')
+def _split_For(expr, index, size, inner_unroll=False):
+    if not (expr.target.name == index):
+        body = split(expr.body, index, size, inner_unroll=inner_unroll)
+        return For(expr.target, expr.iterable, body)
 
     target = expr.target
     body   = expr.body
-    if not (target.name == index):
-        raise ValueError('Expecting {} as index'.format(index))
-
     iterable = expr.iterable
     if isinstance(iterable, PythonRange):
         # TODO use the same code as in unroll
@@ -64,13 +91,7 @@ def split(expr, index, size, inner_unroll=False):
         outer = Variable('int', 'outer_{}'.format(target.name))
 
         inner_range = PythonRange(0, size, 1) # TODO what about step?
-        new_body = []
-        # body is supposed to be CodeBlock
-        for stmt in body.body:
-            new = stmt.subs(target, inner+size*outer)
-            new_body.append(new)
-
-        body = CodeBlock(new_body)
+        body = _subs(body, target, inner+size*outer)
         inner_loop = For(inner, inner_range, body)
 
         if inner_unroll:
@@ -91,6 +112,29 @@ def split(expr, index, size, inner_unroll=False):
 
     else:
         raise TypeError('Not yet available')
+
+# **********************************************************************************
+def _split_CodeBlock(expr, index, size, inner_unroll=False):
+    body = []
+    for stmt in expr.body:
+        new = split(stmt, index, size, inner_unroll=inner_unroll)
+        body.append(new)
+
+    return CodeBlock(body)
+
+# **********************************************************************************
+def split(expr, index, size, inner_unroll=False):
+    if isinstance(expr, For):
+        return _split_For(expr, index, size, inner_unroll=inner_unroll)
+
+    elif isinstance(expr, CodeBlock):
+        return _split_CodeBlock(expr, index, size, inner_unroll=inner_unroll)
+
+    elif isinstance(expr, Assign):
+        return expr
+
+    else:
+        raise TypeError('Not available for {}'.format(type(expr)))
 
 # **********************************************************************************
 def unroll(expr):
@@ -231,6 +275,24 @@ def test_split_1(fname, **kwargs):
     print(code)
 
 # **********************************************************************************
+def test_split_2(fname, **kwargs):
+    T = Transform(fname)
+    loop = T.extract_loop(index='i')
+
+    print('****************** BEFORE ******************')
+    code = pycode(loop)
+    print(code)
+
+    print('****************** SPLIT i *****************')
+    loop = split(loop, 'i', 8)
+    code = pycode(loop)
+    print(code)
+    print('****************** SPLIT j *****************')
+    loop = split(loop, 'j', 4)
+    code = pycode(loop)
+    print(code)
+
+# **********************************************************************************
 def test_split_unroll_1(fname, **kwargs):
     T = Transform(fname)
     loop = T.extract_loop(index='i')
@@ -283,5 +345,6 @@ def run_tests():
 if __name__ == '__main__':
 #    run_tests()
 #    test_split_1('scripts/ex1.py')
-    test_split_unroll_1('scripts/ex1.py')
+    test_split_2('scripts/ex3.py')
+#    test_split_unroll_1('scripts/ex1.py')
 #    test_unroll_1('scripts/ex2.py')
