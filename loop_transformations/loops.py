@@ -28,7 +28,6 @@ from pyccel.ast.operators import PyccelFloorDiv
 from pyccel.ast.builtins  import PythonInt
 from pyccel.ast.builtins  import PythonRange
 from pyccel.ast.literals  import LiteralInteger
-from pyccel.codegen.printing.pycode import pycode
 
 # **********************************************************************************
 # TODO works with one variable for the moment
@@ -301,92 +300,3 @@ class Transform(object):
             expr = _split(expr, index, size, inner_unroll=inner_unroll)
 
         return expr
-
-# **********************************************************************************
-def test_split_loop(fname, **kwargs):
-    T = Transform(fname)
-    loop = T.extract_loop(index='i')
-
-    print('****************** BEFORE ******************')
-    code = pycode(loop)
-    print(code)
-
-    print('****************** AFTER  ******************')
-    loop = split(loop, 'i', 16)
-    code = pycode(loop)
-    print(code)
-
-# **********************************************************************************
-def test_unroll_loop(fname, **kwargs):
-    T = Transform(fname)
-    loop = T.extract_loop(index='i')
-
-    print('****************** BEFORE ******************')
-    code = pycode(loop)
-    print(code)
-
-    print('****************** AFTER  ******************')
-    loop = unroll(loop)
-    code = pycode(loop)
-    print(code)
-
-# **********************************************************************************
-def test_split_rank_1(fname, **kwargs):
-    inner_unroll = kwargs.pop('inner_unroll', False)
-
-    T = Transform(fname)
-    f = T.split({'index': 'i', 'size': 4, 'inner_unroll': inner_unroll})
-
-    print('****************** BEFORE ******************')
-    code = pycode(T.func)
-    print(code)
-
-    print('****************** AFTER  ******************')
-    code = pycode(f)
-    print(code)
-
-# **********************************************************************************
-def test_split_rank_2(fname, **kwargs):
-
-    T = Transform(fname)
-    f = T.split({'index': 'i', 'size': 2, 'inner_unroll': True},
-#                {'index': 'j', 'size': 4, 'inner_unroll': False})
-                {'index': 'j', 'size': 4, 'inner_unroll': True})
-
-    print('****************** BEFORE ******************')
-    code = pycode(T.func)
-    print(code)
-
-    print('****************** AFTER  ******************')
-    code = pycode(f)
-    print(code)
-
-# **********************************************************************************
-from pyccel.parser.utilities import read_file
-
-def run_tests():
-    # ...
-    base_dir = os.path.dirname(os.path.realpath(__file__))
-    path_dir = os.path.join(base_dir, 'scripts')
-
-    files = sorted(os.listdir(path_dir))
-    files = [os.path.join(path_dir,f) for f in files if (f.endswith(".py"))]
-    # ...
-
-    for fname in files:
-        print('>>>>>> testing {0}'.format(str(os.path.basename(fname))))
-        code = read_file(fname)
-        print('****************** BEFORE ******************')
-        print(code)
-
-######################
-if __name__ == '__main__':
-#    run_tests()
-
-#    test_split_loop('scripts/ex1.py')
-#    test_unroll_loop('scripts/ex1.py')
-
-#    test_split_rank_1('scripts/ex1.py')
-#    test_split_rank_1('scripts/ex1.py', inner_unroll=True)
-    test_split_rank_2('scripts/ex3.py')
-#    test_unroll_1('scripts/ex2.py')
