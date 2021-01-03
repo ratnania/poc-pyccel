@@ -14,6 +14,7 @@ from pyccel.parser.parser   import Parser
 from pyccel.codegen.codegen import Codegen
 from pyccel.errors.errors   import Errors
 
+from pyccel.ast.basic     import Basic
 from pyccel.ast.core import Variable
 from pyccel.ast.core import For
 from pyccel.ast.core import Assign
@@ -30,6 +31,93 @@ from pyccel.ast.builtins  import PythonRange
 from pyccel.ast.literals  import LiteralInteger
 
 # **********************************************************************************
+class InnerFor(Basic):
+    def __new__(cls, loop):
+        return Basic.__new__(cls, loop)
+
+    @property
+    def body(self):
+        return self._args[0]
+
+# **********************************************************************************
+class OuterFor(Basic):
+    def __new__(cls, loop):
+        return Basic.__new__(cls, loop)
+
+    @property
+    def body(self):
+        return self._args[0]
+
+# **********************************************************************************
+class SplitFor(Basic):
+    def __new__(cls, loop, size, inner_unroll):
+        assert(isinstance(loop, For))
+
+        if not isinstance(loop.iterable, PythonRange):
+            raise TypeError('iterable must be of type Range')
+
+        target = loop.target
+        body   = loop.body
+        iterable = loop.iterable
+
+        # TODO use the same code as in unroll
+        start = iterable.start
+        stop  = iterable.stop
+        step  = iterable.step
+
+        if not( step.python_value == 1 ):
+            raise NotImplementedError('Only step = 1 is handled')
+
+        inner = Variable('int', 'inner_{}'.format(target.name))
+        outer = Variable('int', 'outer_{}'.format(target.name))
+
+        # ...
+        inner_range = PythonRange(0, size, 1) # TODO what about step?
+        body = _subs(body, target, inner+size*outer)
+        inner_loop = For(inner, inner_range, body)
+
+        if inner_unroll:
+            inner_loop = unroll(inner_loop)
+
+        inner_loop = InnerFor(inner_loop)
+        # ...
+
+        # ...
+        new_stop = Variable('int', 'stop_{}'.format(outer.name))
+
+        assign_tmp = Assign(new_stop,  size-1+stop)
+        assign_stop = Assign(new_stop,  PyccelFloorDiv(new_stop, LiteralInteger(size)) )
+        outer_range = PythonRange(start, new_stop, step)
+        outer_loop = For(outer, outer_range, [inner_loop])
+
+        body = CodeBlock([assign_tmp, assign_stop, outer_loop])
+
+        outer_loop = OuterFor(body)
+        # ...
+
+        return Basic.__new__(cls, loop, outer_loop, inner_loop, size, inner_unroll)
+
+    @property
+    def loop(self):
+        return self._args[0]
+
+    @property
+    def outer(self):
+        return self._args[1]
+
+    @property
+    def inner(self):
+        return self._args[2]
+
+    @property
+    def size(self):
+        return self._args[3]
+
+    @property
+    def inner_unroll(self):
+        return self._args[4]
+
+# **********************************************************************************
 # TODO works with one variable for the moment
 def _subs(expr, old, new):
     if isinstance(expr, CodeBlock):
@@ -43,6 +131,10 @@ def _subs(expr, old, new):
     elif isinstance(expr, For):
         body = _subs(expr.body, old, new)
         return For(expr.target, expr.iterable, body)
+
+    elif isinstance(expr, SplitFor):
+        loop = _subs(expr.loop, old, new)
+        return SplitFor(loop, expr.size, expr.inner_unroll)
 
     else:
         return expr.subs(old, new)
@@ -76,43 +168,12 @@ def _split_For(expr, index, size, inner_unroll=False):
         body = _split(expr.body, index, size, inner_unroll=inner_unroll)
         return For(expr.target, expr.iterable, body)
 
-    target = expr.target
-    body   = expr.body
-    iterable = expr.iterable
-    if isinstance(iterable, PythonRange):
-        # TODO use the same code as in unroll
-        start = iterable.start
-        stop  = iterable.stop
-        step  = iterable.step
+    return SplitFor(expr, size, inner_unroll)
 
-        if not( step.python_value == 1 ):
-            raise NotImplementedError('Only step = 1 is handled')
-
-        inner = Variable('int', 'inner_{}'.format(target.name))
-        outer = Variable('int', 'outer_{}'.format(target.name))
-
-        inner_range = PythonRange(0, size, 1) # TODO what about step?
-        body = _subs(body, target, inner+size*outer)
-        inner_loop = For(inner, inner_range, body)
-
-        if inner_unroll:
-            inner_loop = unroll(inner_loop)
-        else:
-            inner_loop = [inner_loop]
-
-        new_stop = Variable('int', 'stop_{}'.format(outer.name))
-
-        assign_tmp = Assign(new_stop,  size-1+stop)
-        assign_stop = Assign(new_stop,  PyccelFloorDiv(new_stop, LiteralInteger(size)) )
-        outer_range = PythonRange(start, new_stop, step)
-        outer_loop = For(outer, outer_range, inner_loop)
-
-        body = CodeBlock([assign_tmp, assign_stop, outer_loop])
-
-        return body
-
-    else:
-        raise TypeError('Not yet available')
+# **********************************************************************************
+def _split_SplitFor(expr, index, size, inner_unroll=False):
+    loop = _split(expr.loop, index, size, inner_unroll=inner_unroll)
+    return SplitFor(loop, expr.size, expr.inner_unroll)
 
 # **********************************************************************************
 def _split_CodeBlock(expr, index, size, inner_unroll=False):
@@ -151,6 +212,9 @@ def _split_FunctionDef(expr, index, size, inner_unroll=False):
 def _split(expr, index, size, inner_unroll=False):
     if isinstance(expr, For):
         return _split_For(expr, index, size, inner_unroll=inner_unroll)
+
+    elif isinstance(expr, SplitFor):
+        return _split_SplitFor(expr, index, size, inner_unroll=inner_unroll)
 
     elif isinstance(expr, CodeBlock):
         return _split_CodeBlock(expr, index, size, inner_unroll=inner_unroll)
@@ -228,11 +292,6 @@ def unroll(expr):
 
     body = CodeBlock(body)
     return body
-
-
-# **********************************************************************************
-def reorder(expr, *args):
-    return expr
 
 # **********************************************************************************
 class Transform(object):
