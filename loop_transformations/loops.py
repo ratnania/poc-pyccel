@@ -280,6 +280,11 @@ def unroll(expr):
 
             return For(stmt.target, stmt.iterable, body)
 
+        elif isinstance(stmt, SplitFor):
+            loop = _subs(stmt.loop, old, new)
+
+            return SplitFor(loop, stmt.size, stmt.inner_unroll)
+
         else:
             return stmt.subs(old, new)
     # ...
