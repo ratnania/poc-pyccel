@@ -161,73 +161,6 @@ def _extract_loop(expr, index):
 
     raise ValueError('expr does not have any loop with target = {}'.format(index))
 
-
-# **********************************************************************************
-def _split_For(expr, index, size, inner_unroll=False):
-    if not (expr.target.name == index):
-        body = _split(expr.body, index, size, inner_unroll=inner_unroll)
-        return For(expr.target, expr.iterable, body)
-
-    return SplitFor(expr, size, inner_unroll)
-
-# **********************************************************************************
-def _split_SplitFor(expr, index, size, inner_unroll=False):
-    loop = _split(expr.loop, index, size, inner_unroll=inner_unroll)
-    return SplitFor(loop, expr.size, expr.inner_unroll)
-
-# **********************************************************************************
-def _split_CodeBlock(expr, index, size, inner_unroll=False):
-    body = []
-    for stmt in expr.body:
-        new = _split(stmt, index, size, inner_unroll=inner_unroll)
-        body.append(new)
-
-    return CodeBlock(body)
-
-# **********************************************************************************
-def _split_FunctionDef(expr, index, size, inner_unroll=False):
-    f = expr
-    body = _split(f.body, index, size, inner_unroll=inner_unroll)
-    return FunctionDef( f.name,
-                        f.arguments,
-                        f.results,
-                        body,
-                        local_vars=f.local_vars,
-                        global_vars=f.global_vars,
-                        imports=f.imports,
-                        decorators=f.decorators,
-                        headers=f.headers,
-                        templates=f.templates,
-                        is_recursive=f.is_recursive,
-                        is_pure=f.is_pure,
-                        is_elemental=f.is_elemental,
-                        is_private=f.is_private,
-                        is_header=f.is_header,
-                        arguments_inout=f.arguments_inout,
-                        functions=f.functions,
-                        interfaces=f.interfaces,
-                        doc_string=f.doc_string )
-
-# **********************************************************************************
-def _split(expr, index, size, inner_unroll=False):
-    if isinstance(expr, For):
-        return _split_For(expr, index, size, inner_unroll=inner_unroll)
-
-    elif isinstance(expr, SplitFor):
-        return _split_SplitFor(expr, index, size, inner_unroll=inner_unroll)
-
-    elif isinstance(expr, CodeBlock):
-        return _split_CodeBlock(expr, index, size, inner_unroll=inner_unroll)
-
-    elif isinstance(expr, FunctionDef):
-        return _split_FunctionDef(expr, index, size, inner_unroll=inner_unroll)
-
-    elif isinstance(expr, (Assign, EmptyNode)):
-        return expr
-
-    else:
-        raise TypeError('Not available for {}'.format(type(expr)))
-
 # **********************************************************************************
 def unroll(expr):
     iterable = expr.iterable
@@ -321,6 +254,9 @@ class Transform(object):
         self._codegen = codegen
 
         self._loops = {}
+        self._index = None
+        self._size = None
+        self._inner_unroll = None
 
         # reset Errors singleton
         errors = Errors()
@@ -343,6 +279,18 @@ class Transform(object):
     def doprint(self, language='python'):
         return self.codegen.doprint(language=language)
 
+    @property
+    def index(self):
+        return self._index
+
+    @property
+    def size(self):
+        return self._size
+
+    @property
+    def inner_unroll(self):
+        return self._inner_unroll
+
     def split(self, *args):
         for a in args:
             assert(isinstance(a, (dict, OrderedDict)))
@@ -353,6 +301,69 @@ class Transform(object):
             size         = d['size']
             inner_unroll = d['inner_unroll']
 
-            expr = _split(expr, index, size, inner_unroll=inner_unroll)
+            self._index = index
+            self._size = size
+            self._inner_unroll = inner_unroll
+
+            expr = self._split(expr)
 
         return expr
+
+    def _split(self, expr, **settings):
+
+        classes = type(expr).__mro__
+        for cls in classes:
+            method = '_split_' + cls.__name__
+            if hasattr(self, method):
+                obj = getattr(self, method)(expr, **settings)
+                return obj
+
+    def _split_Assign(self, expr, **settings):
+        return expr
+
+    def _split_EmptyNode(self, expr, **settings):
+        return expr
+
+    def _split_For(self, expr, **settings):
+        if not (expr.target.name == self.index):
+            body = self._split(expr.body, **settings)
+
+            return For(expr.target, expr.iterable, body)
+
+        return SplitFor(expr, self.size, self.inner_unroll)
+
+    def _split_SplitFor(self, expr, **settings):
+        loop = self._split(expr.loop, **settings)
+
+        return SplitFor(loop, expr.size, expr.inner_unroll)
+
+    def _split_CodeBlock(self, expr, **settings):
+        body = []
+        for stmt in expr.body:
+            new = self._split(stmt, **settings)
+            body.append(new)
+
+        return CodeBlock(body)
+
+    def _split_FunctionDef(self, expr, **settings):
+        f = expr
+        body = self._split(f.body, **settings)
+        return FunctionDef( f.name,
+                            f.arguments,
+                            f.results,
+                            body,
+                            local_vars=f.local_vars,
+                            global_vars=f.global_vars,
+                            imports=f.imports,
+                            decorators=f.decorators,
+                            headers=f.headers,
+                            templates=f.templates,
+                            is_recursive=f.is_recursive,
+                            is_pure=f.is_pure,
+                            is_elemental=f.is_elemental,
+                            is_private=f.is_private,
+                            is_header=f.is_header,
+                            arguments_inout=f.arguments_inout,
+                            functions=f.functions,
+                            interfaces=f.interfaces,
+                            doc_string=f.doc_string )
