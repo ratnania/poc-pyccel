@@ -34,8 +34,23 @@ def test_split_rank_2(fname, **kwargs):
     f = T.split({'index': 'i', 'size': 2, 'inner_unroll': inner_unroll},
                 {'index': 'j', 'size': 4, 'inner_unroll': inner_unroll})
 
-#    f = T.split({'index': 'i', 'size': 2, 'inner_unroll': False},
-#                {'index': 'j', 'size': 4, 'inner_unroll': False})
+    print('****************** BEFORE ******************')
+    code = pycode(T.func)
+    print(code)
+
+    print('****************** AFTER  ******************')
+    code = pycode(f)
+    print(code)
+
+# **********************************************************************************
+def test_split_rank_3(fname, **kwargs):
+    inner_unroll = kwargs.pop('inner_unroll', False)
+
+    T = Transform(fname)
+
+    f = T.split({'index': 'i', 'size': 2, 'inner_unroll': inner_unroll},
+                {'index': 'j', 'size': 3, 'inner_unroll': inner_unroll},
+                {'index': 'k', 'size': 4, 'inner_unroll': inner_unroll})
 
     print('****************** BEFORE ******************')
     code = pycode(T.func)
@@ -85,5 +100,9 @@ if __name__ == '__main__':
 
 #    test_split_rank_1('scripts/ex1.py', inner_unroll=False)
 #    test_split_rank_1('scripts/ex1.py', inner_unroll=True)
+
 #    test_split_rank_2('scripts/ex2.py', inner_unroll=False)
-    test_split_rank_2('scripts/ex2.py', inner_unroll=True)
+#    test_split_rank_2('scripts/ex2.py', inner_unroll=True)
+
+#    test_split_rank_3('scripts/ex3.py', inner_unroll=False)
+    test_split_rank_3('scripts/ex3.py', inner_unroll=True)
