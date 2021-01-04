@@ -209,71 +209,6 @@ def _extract_loop(expr, index):
     raise ValueError('expr does not have any loop with target = {}'.format(index))
 
 # **********************************************************************************
-def unroll(expr):
-    iterable = expr.iterable
-    target = expr.target
-
-    if not isinstance(iterable, PythonRange):
-        raise TypeError('Expecting PythonRange')
-
-    start = iterable.start
-    stop  = iterable.stop
-    step  = iterable.step
-
-    # ...
-    if isinstance(start, LiteralInteger):
-        start = start.python_value
-
-    elif not isinstance(start, int):
-        raise TypeError('Expecting LiteralInteger or int')
-    # ...
-
-    # ...
-    if isinstance(step, LiteralInteger):
-        step = step.python_value
-
-    elif not isinstance(step, int):
-        raise TypeError('Expecting LiteralInteger or int')
-    # ...
-
-    # ...
-    if isinstance(stop, LiteralInteger):
-        stop = stop.python_value
-
-    elif not isinstance(stop, int):
-        raise TypeError('Expecting LiteralInteger or int')
-    # ...
-
-    stmts = expr.body.body # this is a CodeBlock
-
-    # ...
-    def _subs_index(stmt, old, new):
-        if isinstance(stmt, CodeBlock):
-            body = []
-            for i in stmt.body:
-                body.append(_subs_index(i, old, new))
-
-            return CodeBlock(body)
-
-        elif isinstance(stmt, For):
-            body = _subs_index(stmt.body, old, new)
-
-            return For(stmt.target, stmt.iterable, body)
-
-        else:
-            return stmt.subs(old, new)
-    # ...
-
-    body = []
-    for stmt in stmts:
-        for i in range(start, stop, step):
-            new = _subs_index(stmt, target, i)
-            body.append(new)
-
-    body = CodeBlock(body)
-    return body
-
-# **********************************************************************************
 class Transform(object):
     def __init__(self, filename):
         self._filename = filename
@@ -497,8 +432,10 @@ class Transform(object):
             if not isinstance(inner, CodeBlock):
                 inner = CodeBlock([inner])
 
-            # TODO add prelude
-            return For(expr.outer.target, expr.outer.iterable, inner)
+            # add prelude
+            return CodeBlock([expr.outer.prelude,
+                              For(expr.outer.target, expr.outer.iterable, inner)])
+#            return For(expr.outer.target, expr.outer.iterable, inner)
 
         else:
             if len(self.outer_loops) == len(self.indices):
@@ -506,17 +443,81 @@ class Transform(object):
                     if not isinstance(inner, CodeBlock):
                         inner = CodeBlock([inner])
 
-                    # TODO add prelude
-                    inner = For(outer.target, outer.iterable, inner)
+                    # add prelude
+#                    inner = For(outer.target, outer.iterable, inner)
+                    inner = CodeBlock([outer.prelude,
+                                       For(outer.target, outer.iterable, inner)])
                 return inner
 
             else:
                 return inner
 
     def _finalize_InnerFor(self, expr, **settings):
-        if expr.unroll:
-            raise NotImplementedError('unroll = True not available')
+        unroll = expr.unroll
+
+        body = self._finalize(expr.body, **settings)
+        expr = For(expr.target, expr.iterable, body)
+
+        if not unroll:
+            return expr
 
         else:
-            body = self._finalize(expr.body, **settings)
-            return For(expr.target, expr.iterable, body)
+            target   = expr.target
+            iterable = expr.iterable
+
+            start = iterable.start
+            stop  = iterable.stop
+            step  = iterable.step
+
+            # ...
+            if isinstance(start, LiteralInteger):
+                start = start.python_value
+
+            elif not isinstance(start, int):
+                raise TypeError('Expecting LiteralInteger or int')
+            # ...
+
+            # ...
+            if isinstance(step, LiteralInteger):
+                step = step.python_value
+
+            elif not isinstance(step, int):
+                raise TypeError('Expecting LiteralInteger or int')
+            # ...
+
+            # ...
+            if isinstance(stop, LiteralInteger):
+                stop = stop.python_value
+
+            elif not isinstance(stop, int):
+                raise TypeError('Expecting LiteralInteger or int')
+            # ...
+
+            stmts = expr.body.body # this is a CodeBlock
+
+            # ...
+            def _subs_index(stmt, old, new):
+                if isinstance(stmt, CodeBlock):
+                    body = []
+                    for i in stmt.body:
+                        body.append(_subs_index(i, old, new))
+
+                    return CodeBlock(body)
+
+                elif isinstance(stmt, For):
+                    body = _subs_index(stmt.body, old, new)
+
+                    return For(stmt.target, stmt.iterable, body)
+
+                else:
+                    return stmt.subs(old, new)
+            # ...
+
+            body = []
+            for stmt in stmts:
+                for i in range(start, stop, step):
+                    new = _subs_index(stmt, target, i)
+                    body.append(new)
+
+            body = CodeBlock(body)
+            return body
