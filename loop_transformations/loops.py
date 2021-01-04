@@ -298,9 +298,11 @@ class Transform(object):
         self._loops = OrderedDict()
         self._inner_indices = OrderedDict()
         self._outer_indices = OrderedDict()
-        self._outer_loops = OrderedDict()
         self._indices = OrderedDict()
         self._new_indices = OrderedDict()
+        self._outer_loops = []
+        self._gather = True
+#        self._gather = False
 
         # reset Errors singleton
         errors = Errors()
@@ -334,6 +336,10 @@ class Transform(object):
     def outer_loops(self):
         return self._outer_loops
 
+    @property
+    def gather(self):
+        return self._gather
+
     def update(self, func):
         self._codegen.expr.funcs[0] = func
 
@@ -352,6 +358,7 @@ class Transform(object):
         # ... create inner and outer indices
         self._indices = OrderedDict()
         self._new_indices = OrderedDict()
+        self._outer_loops = []
         for d in args:
             index  = d['index']
             size   = d['size']
@@ -481,14 +488,29 @@ class Transform(object):
         return CodeBlock(body)
 
     def _finalize_SplittedFor(self, expr, **settings):
-#        inner = self._finalize(expr.inner, **settings)
-        outer = self._finalize(expr.outer, **settings)
+        inner = self._finalize(expr.inner, **settings)
 
-#        self._outer_loops[name] = outer
+        if self.gather:
+            self._outer_loops.append(expr.outer)
 
-        # TODO
-#        return inner
-        return outer
+        if not self.gather:
+            if not isinstance(inner, CodeBlock):
+                inner = CodeBlock([inner])
+
+            # TODO add prelude
+            return For(expr.outer.target, expr.outer.iterable, inner)
+
+        else:
+            if len(self.outer_loops) == len(self.indices):
+                for outer in self.outer_loops:
+                    if not isinstance(inner, CodeBlock):
+                        inner = CodeBlock([inner])
+
+                    inner = For(outer.target, outer.iterable, inner)
+                return inner
+
+            else:
+                return inner
 
     def _finalize_InnerFor(self, expr, **settings):
         if expr.unroll:
@@ -497,11 +519,3 @@ class Transform(object):
         else:
             body = self._finalize(expr.body, **settings)
             return For(expr.target, expr.iterable, body)
-
-    def _finalize_OuterFor(self, expr, **settings):
-        body = self._finalize(expr.inner, **settings)
-        # TODO add prelude
-        if not isinstance(body, CodeBlock):
-            body = CodeBlock([body])
-
-        return For(expr.target, expr.iterable, body)
