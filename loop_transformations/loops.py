@@ -30,27 +30,12 @@ from pyccel.ast.builtins  import PythonInt
 from pyccel.ast.builtins  import PythonRange
 from pyccel.ast.literals  import LiteralInteger
 
-# **********************************************************************************
-class InnerFor(Basic):
-    def __new__(cls, loop):
-        return Basic.__new__(cls, loop)
-
-    @property
-    def body(self):
-        return self._args[0]
 
 # **********************************************************************************
-class OuterFor(Basic):
-    def __new__(cls, loop):
-        return Basic.__new__(cls, loop)
-
-    @property
-    def body(self):
-        return self._args[0]
-
-# **********************************************************************************
-class SplitFor(Basic):
+class OldSplitFor(Basic):
     def __new__(cls, loop, size, inner_unroll):
+        # TODO we should not do this all the time
+
         assert(isinstance(loop, For))
 
         if not isinstance(loop.iterable, PythonRange):
@@ -79,7 +64,7 @@ class SplitFor(Basic):
         if inner_unroll:
             inner_loop = unroll(inner_loop)
 
-        inner_loop = InnerFor(inner_loop)
+        inner_loop = OldInnerFor(inner_loop)
         # ...
 
         # ...
@@ -92,7 +77,7 @@ class SplitFor(Basic):
 
         body = CodeBlock([assign_tmp, assign_stop, outer_loop])
 
-        outer_loop = OuterFor(body)
+        outer_loop = OldOuterFor(body)
         # ...
 
         return Basic.__new__(cls, loop, outer_loop, inner_loop, size, inner_unroll)
@@ -118,26 +103,88 @@ class SplitFor(Basic):
         return self._args[4]
 
 # **********************************************************************************
-# TODO works with one variable for the moment
-def _subs(expr, old, new):
-    if isinstance(expr, CodeBlock):
-        body = []
-        for stmt in expr.body:
-            new_stmt = _subs(stmt, old, new)
-            body.append(new_stmt)
+class InnerFor(Basic):
+    def __new__(cls, target, size, unroll, body):
+        iterable = PythonRange(0, size, 1) # TODO what about step?
+        return Basic.__new__(cls, target, iterable, size, unroll, body)
 
-        return CodeBlock(body)
+    @property
+    def target(self):
+        return self._args[0]
 
-    elif isinstance(expr, For):
-        body = _subs(expr.body, old, new)
-        return For(expr.target, expr.iterable, body)
+    @property
+    def iterable(self):
+        return self._args[1]
 
-    elif isinstance(expr, SplitFor):
-        loop = _subs(expr.loop, old, new)
-        return SplitFor(loop, expr.size, expr.inner_unroll)
+    @property
+    def size(self):
+        return self._args[2]
 
-    else:
-        return expr.subs(old, new)
+    @property
+    def unroll(self):
+        return self._args[3]
+
+    @property
+    def body(self):
+        return self._args[4]
+
+# **********************************************************************************
+class OuterFor(Basic):
+    def __new__(cls, target, iterable, inner):
+        # ...
+        if not isinstance(iterable, PythonRange):
+            raise TypeError('iterable must be of type Range')
+
+        start = iterable.start
+        stop  = iterable.stop
+        step  = iterable.step
+
+        if not( step.python_value == 1 ):
+            raise NotImplementedError('Only step = 1 is handled')
+        # ...
+
+        stop_var = Variable('int', 'stop_{}'.format(target.name))
+
+        # ... TODO improve
+        size = inner.size
+        assign_tmp = Assign(stop_var,  size-1+stop)
+        assign_stop = Assign(stop_var,  PyccelFloorDiv(stop_var, LiteralInteger(size)) )
+
+        prelude = CodeBlock([assign_tmp, assign_stop])
+        # ...
+
+        iterable = PythonRange(start, stop_var, step)
+
+        return Basic.__new__(cls, target, iterable, prelude, inner)
+
+    @property
+    def target(self):
+        return self._args[0]
+
+    @property
+    def iterable(self):
+        return self._args[1]
+
+    @property
+    def prelude(self):
+        return self._args[2]
+
+    @property
+    def inner(self):
+        return self._args[3]
+
+# **********************************************************************************
+class SplittedFor(Basic):
+    def __new__(cls, outer, inner):
+        return Basic.__new__(cls, outer, inner)
+
+    @property
+    def outer(self):
+        return self._args[0]
+
+    @property
+    def inner(self):
+        return self._args[1]
 
 # **********************************************************************************
 def _extract_loop(expr, index):
@@ -213,11 +260,6 @@ def unroll(expr):
 
             return For(stmt.target, stmt.iterable, body)
 
-        elif isinstance(stmt, SplitFor):
-            loop = _subs(stmt.loop, old, new)
-
-            return SplitFor(loop, stmt.size, stmt.inner_unroll)
-
         else:
             return stmt.subs(old, new)
     # ...
@@ -253,10 +295,12 @@ class Transform(object):
         self._func = codegen.expr.funcs[0]
         self._codegen = codegen
 
-        self._loops = {}
-        self._index = None
-        self._size = None
-        self._inner_unroll = None
+        self._loops = OrderedDict()
+        self._inner_indices = OrderedDict()
+        self._outer_indices = OrderedDict()
+        self._outer_loops = OrderedDict()
+        self._indices = OrderedDict()
+        self._new_indices = OrderedDict()
 
         # reset Errors singleton
         errors = Errors()
@@ -270,6 +314,26 @@ class Transform(object):
     def func(self):
         return self._func
 
+    @property
+    def indices(self):
+        return self._indices
+
+    @property
+    def new_indices(self):
+        return self._new_indices
+
+    @property
+    def inner_indices(self):
+        return self._inner_indices
+
+    @property
+    def outer_indices(self):
+        return self._outer_indices
+
+    @property
+    def outer_loops(self):
+        return self._outer_loops
+
     def update(self, func):
         self._codegen.expr.funcs[0] = func
 
@@ -279,33 +343,33 @@ class Transform(object):
     def doprint(self, language='python'):
         return self.codegen.doprint(language=language)
 
-    @property
-    def index(self):
-        return self._index
-
-    @property
-    def size(self):
-        return self._size
-
-    @property
-    def inner_unroll(self):
-        return self._inner_unroll
-
     def split(self, *args):
         for a in args:
             assert(isinstance(a, (dict, OrderedDict)))
 
         expr = self.func
+
+        # ... create inner and outer indices
+        self._indices = OrderedDict()
+        self._new_indices = OrderedDict()
         for d in args:
-            index        = d['index']
-            size         = d['size']
-            inner_unroll = d['inner_unroll']
+            index  = d['index']
+            size   = d['size']
+            unroll = d['inner_unroll']
 
-            self._index = index
-            self._size = size
-            self._inner_unroll = inner_unroll
+            self._indices[index] = {'size': size, 'unroll': unroll}
 
-            expr = self._split(expr)
+            name = '{}'.format(index)
+
+            inner = Variable('int', 'inner_{}'.format(name))
+            outer = Variable('int', 'outer_{}'.format(name))
+
+            self._inner_indices[index] = inner
+            self._outer_indices[index] = outer
+            self._new_indices[index]   = inner + size * outer
+        # ...
+
+        expr = self._split(expr)
 
         return expr
 
@@ -317,25 +381,43 @@ class Transform(object):
             if hasattr(self, method):
                 obj = getattr(self, method)(expr, **settings)
                 return obj
+            else:
+                raise NotImplementedError('{} not available'.format(method))
 
     def _split_Assign(self, expr, **settings):
+        for old, new in self.new_indices.items():
+            # old is a string
+            # TODO shall we improve this?
+            old = Variable('int', old)
+
+            expr = expr.subs(old, new)
+
         return expr
 
     def _split_EmptyNode(self, expr, **settings):
         return expr
 
     def _split_For(self, expr, **settings):
-        if not (expr.target.name == self.index):
-            body = self._split(expr.body, **settings)
+        body = self._split(expr.body, **settings)
 
+        if expr.target.name in self.indices.keys():
+
+            target = expr.target
+            name = '{}'.format(target.name)
+
+            size   = self.indices[name]['size']
+            unroll = self.indices[name]['unroll']
+
+            inner_target = self.inner_indices[name]
+            outer_target = self.outer_indices[name]
+
+            inner = InnerFor(inner_target, size, unroll, body)
+            outer = OuterFor(outer_target, expr.iterable, inner)
+
+            return SplittedFor(outer, inner)
+
+        else:
             return For(expr.target, expr.iterable, body)
-
-        return SplitFor(expr, self.size, self.inner_unroll)
-
-    def _split_SplitFor(self, expr, **settings):
-        loop = self._split(expr.loop, **settings)
-
-        return SplitFor(loop, expr.size, expr.inner_unroll)
 
     def _split_CodeBlock(self, expr, **settings):
         body = []
@@ -348,6 +430,8 @@ class Transform(object):
     def _split_FunctionDef(self, expr, **settings):
         f = expr
         body = self._split(f.body, **settings)
+        body = self._finalize(body, **settings)
+
         return FunctionDef( f.name,
                             f.arguments,
                             f.results,
@@ -367,3 +451,57 @@ class Transform(object):
                             functions=f.functions,
                             interfaces=f.interfaces,
                             doc_string=f.doc_string )
+
+    def _finalize(self, expr, **settings):
+
+        classes = type(expr).__mro__
+        for cls in classes:
+            method = '_finalize_' + cls.__name__
+            if hasattr(self, method):
+                obj = getattr(self, method)(expr, **settings)
+                return obj
+            else:
+                raise NotImplementedError('{} not available'.format(method))
+
+    def _finalize_Assign(self, expr, **settings):
+        return expr
+
+    def _finalize_EmptyNode(self, expr, **settings):
+        return expr
+
+    def _finalize_For(self, expr, **settings):
+        return expr
+
+    def _finalize_CodeBlock(self, expr, **settings):
+        body = []
+        for stmt in expr.body:
+            new = self._finalize(stmt, **settings)
+            body.append(new)
+
+        return CodeBlock(body)
+
+    def _finalize_SplittedFor(self, expr, **settings):
+#        inner = self._finalize(expr.inner, **settings)
+        outer = self._finalize(expr.outer, **settings)
+
+#        self._outer_loops[name] = outer
+
+        # TODO
+#        return inner
+        return outer
+
+    def _finalize_InnerFor(self, expr, **settings):
+        if expr.unroll:
+            raise NotImplementedError('unroll = True not available')
+
+        else:
+            body = self._finalize(expr.body, **settings)
+            return For(expr.target, expr.iterable, body)
+
+    def _finalize_OuterFor(self, expr, **settings):
+        body = self._finalize(expr.inner, **settings)
+        # TODO add prelude
+        if not isinstance(body, CodeBlock):
+            body = CodeBlock([body])
+
+        return For(expr.target, expr.iterable, body)

@@ -17,13 +17,15 @@ def test_split_rank_1(fname, **kwargs):
     T = Transform(fname)
     f = T.split({'index': 'i', 'size': 4, 'inner_unroll': inner_unroll})
 
+    print(f.body)
+
     print('****************** BEFORE ******************')
     code = pycode(T.func)
     print(code)
 
-    print('****************** AFTER  ******************')
-    code = pycode(f)
-    print(code)
+#    print('****************** AFTER  ******************')
+#    code = pycode(f)
+#    print(code)
 
 # **********************************************************************************
 def test_split_rank_2(fname, **kwargs):
@@ -33,6 +35,8 @@ def test_split_rank_2(fname, **kwargs):
 
     f = T.split({'index': 'i', 'size': 2, 'inner_unroll': inner_unroll},
                 {'index': 'j', 'size': 4, 'inner_unroll': inner_unroll})
+
+    print(f.body)
 
     print('****************** BEFORE ******************')
     code = pycode(T.func)
@@ -58,22 +62,6 @@ def test_split_rank_3(fname, **kwargs):
 
     print('****************** AFTER  ******************')
     code = pycode(f)
-    print(code)
-
-# **********************************************************************************
-def test_reorder(fname, *args):
-    T = Transform(fname)
-
-    expr = T.func.body
-
-    print('****************** BEFORE ******************')
-    code = pycode(T.func)
-    print(code)
-
-    expr = T.reorder(*args)
-
-    print('****************** AFTER  ******************')
-    code = pycode(expr)
     print(code)
 
 # **********************************************************************************
