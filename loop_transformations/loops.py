@@ -506,6 +506,7 @@ class Transform(object):
                     if not isinstance(inner, CodeBlock):
                         inner = CodeBlock([inner])
 
+                    # TODO add prelude
                     inner = For(outer.target, outer.iterable, inner)
                 return inner
 

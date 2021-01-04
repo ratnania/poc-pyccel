@@ -82,10 +82,10 @@ def run_tests():
 if __name__ == '__main__':
 #    run_tests()
 
-    test_split_rank_1('scripts/ex1.py', inner_unroll=False)
+#    test_split_rank_1('scripts/ex1.py', inner_unroll=False)
 #    test_split_rank_1('scripts/ex1.py', inner_unroll=True)
 
-#    test_split_rank_2('scripts/ex2.py', inner_unroll=False)
+    test_split_rank_2('scripts/ex2.py', inner_unroll=False)
 #    test_split_rank_2('scripts/ex2.py', inner_unroll=True)
 
 #    test_split_rank_3('scripts/ex3.py', inner_unroll=False)
