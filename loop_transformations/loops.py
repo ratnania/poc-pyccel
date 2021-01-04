@@ -25,6 +25,8 @@ from pyccel.ast.core import Assign
 from pyccel.ast.core import CodeBlock
 from pyccel.ast.core import FunctionDef
 from pyccel.ast.core import EmptyNode
+from pyccel.ast.operators import PyccelAdd
+from pyccel.ast.operators import PyccelMul
 from pyccel.ast.operators import PyccelFloorDiv
 from pyccel.ast.builtins  import PythonInt
 from pyccel.ast.builtins  import PythonRange
@@ -308,7 +310,11 @@ class Transform(object):
 
             self._inner_indices[index] = inner
             self._outer_indices[index] = outer
-            self._new_indices[index]   = inner + size * outer
+
+            # by doing this, we cannot evaluate/simplify the arithmetic expression
+            size = LiteralInteger(size)
+            self._new_indices[index]   = PyccelAdd(inner, PyccelMul(size, outer))
+#            self._new_indices[index]   = inner+ size*outer
         # ...
 
         expr = self._split(expr)
@@ -516,7 +522,9 @@ class Transform(object):
             body = []
             for stmt in stmts:
                 for i in range(start, stop, step):
-                    new = _subs_index(stmt, target, i)
+                    # by doing this, we cannot evaluate/simplify the arithmetic expression
+                    new = _subs_index(stmt, target, LiteralInteger(i))
+#                    new = _subs_index(stmt, target, i)
                     body.append(new)
 
             body = CodeBlock(body)
