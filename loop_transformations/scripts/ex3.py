@@ -7,4 +7,4 @@ def f(xs):
     for i in range(n):
         for j in range(m):
             for k in range(p):
-                xs[i,j,k] = 2
+                xs[i,j,k] = i*j*k

@@ -6,4 +6,4 @@ def f(xs):
     n,m = shape(xs)
     for i in range(n):
         for j in range(m):
-            xs[i,j] = 2
+            xs[i,j] = i+j

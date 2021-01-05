@@ -32,78 +32,6 @@ from pyccel.ast.builtins  import PythonInt
 from pyccel.ast.builtins  import PythonRange
 from pyccel.ast.literals  import LiteralInteger
 
-
-# **********************************************************************************
-class OldSplitFor(Basic):
-    def __new__(cls, loop, size, inner_unroll):
-        # TODO we should not do this all the time
-
-        assert(isinstance(loop, For))
-
-        if not isinstance(loop.iterable, PythonRange):
-            raise TypeError('iterable must be of type Range')
-
-        target = loop.target
-        body   = loop.body
-        iterable = loop.iterable
-
-        # TODO use the same code as in unroll
-        start = iterable.start
-        stop  = iterable.stop
-        step  = iterable.step
-
-        if not( step.python_value == 1 ):
-            raise NotImplementedError('Only step = 1 is handled')
-
-        inner = Variable('int', 'inner_{}'.format(target.name))
-        outer = Variable('int', 'outer_{}'.format(target.name))
-
-        # ...
-        inner_range = PythonRange(0, size, 1) # TODO what about step?
-        body = _subs(body, target, inner+size*outer)
-        inner_loop = For(inner, inner_range, body)
-
-        if inner_unroll:
-            inner_loop = unroll(inner_loop)
-
-        inner_loop = OldInnerFor(inner_loop)
-        # ...
-
-        # ...
-        new_stop = Variable('int', 'stop_{}'.format(outer.name))
-
-        assign_tmp = Assign(new_stop,  size-1+stop)
-        assign_stop = Assign(new_stop,  PyccelFloorDiv(new_stop, LiteralInteger(size)) )
-        outer_range = PythonRange(start, new_stop, step)
-        outer_loop = For(outer, outer_range, [inner_loop])
-
-        body = CodeBlock([assign_tmp, assign_stop, outer_loop])
-
-        outer_loop = OldOuterFor(body)
-        # ...
-
-        return Basic.__new__(cls, loop, outer_loop, inner_loop, size, inner_unroll)
-
-    @property
-    def loop(self):
-        return self._args[0]
-
-    @property
-    def outer(self):
-        return self._args[1]
-
-    @property
-    def inner(self):
-        return self._args[2]
-
-    @property
-    def size(self):
-        return self._args[3]
-
-    @property
-    def inner_unroll(self):
-        return self._args[4]
-
 # **********************************************************************************
 class InnerFor(Basic):
     def __new__(cls, target, size, unroll, body):
@@ -189,30 +117,8 @@ class SplittedFor(Basic):
         return self._args[1]
 
 # **********************************************************************************
-def _extract_loop(expr, index):
-    if isinstance(expr, FunctionDef):
-        expr = expr.body
-        # expr is a CodeBlock
-
-#    else:
-#        print(type(expr))
-#        import sys; sys.exit(0)
-
-    if not isinstance(index, str):
-        raise TypeError('index must be a string.')
-
-    for e in expr.body:
-        if isinstance(e, For):
-            if e.target.name == index:
-                return e
-            else:
-                return _extract_loop(e.body, index)
-
-    raise ValueError('expr does not have any loop with target = {}'.format(index))
-
-# **********************************************************************************
 class Transform(object):
-    def __init__(self, filename):
+    def __init__(self, filename, gather=True):
         self._filename = filename
 
         # ... run the semantic stage
@@ -238,8 +144,7 @@ class Transform(object):
         self._indices = OrderedDict()
         self._new_indices = OrderedDict()
         self._outer_loops = []
-        self._gather = True
-#        self._gather = False
+        self._gather = gather
 
         # reset Errors singleton
         errors = Errors()
@@ -279,9 +184,6 @@ class Transform(object):
 
     def update(self, func):
         self._codegen.expr.funcs[0] = func
-
-    def extract_loop(self, index):
-        return _extract_loop(self.func, index)
 
     def doprint(self, language='python'):
         return self.codegen.doprint(language=language)
