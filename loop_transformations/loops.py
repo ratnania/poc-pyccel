@@ -18,13 +18,8 @@ from pyccel.ast.basic     import Basic
 from pyccel.ast.core import Variable
 from pyccel.ast.core import For
 from pyccel.ast.core import Assign
-from pyccel.ast.core import While
-from pyccel.ast.core import If
-from pyccel.ast.core import Return
-from pyccel.ast.core import Assign
 from pyccel.ast.core import CodeBlock
 from pyccel.ast.core import FunctionDef
-from pyccel.ast.core import EmptyNode
 from pyccel.ast.operators import PyccelAdd
 from pyccel.ast.operators import PyccelMul
 from pyccel.ast.operators import PyccelFloorDiv
@@ -34,33 +29,45 @@ from pyccel.ast.literals  import LiteralInteger
 
 # **********************************************************************************
 class InnerFor(Basic):
-    def __new__(cls, target, size, unroll, body):
+    _attribute_nodes = ('_target','_iterable','_body','_size')
+
+    def __init__(self, target, size, unroll, body):
         iterable = PythonRange(0, size, 1) # TODO what about step?
-        return Basic.__new__(cls, target, iterable, size, unroll, body)
+
+        self._size = size
+        self._unroll = unroll
+        self._target = target
+        self._iterable = iterable
+        self._body = body
+
+        super().__init__()
 
     @property
     def target(self):
-        return self._args[0]
+        return self._target
 
     @property
     def iterable(self):
-        return self._args[1]
-
-    @property
-    def size(self):
-        return self._args[2]
-
-    @property
-    def unroll(self):
-        return self._args[3]
+        return self._iterable
 
     @property
     def body(self):
-        return self._args[4]
+        return self._body
+
+    @property
+    def size(self):
+        return self._size
+
+    @property
+    def unroll(self):
+        return self._unroll
+
 
 # **********************************************************************************
 class OuterFor(Basic):
-    def __new__(cls, target, iterable, inner):
+    _attribute_nodes = ('_target','_iterable','_inner','_prelude')
+
+    def __init__(self, target, iterable, inner):
         # ...
         if not isinstance(iterable, PythonRange):
             raise TypeError('iterable must be of type Range')
@@ -77,44 +84,65 @@ class OuterFor(Basic):
 
         # ... TODO improve
         size = inner.size
-        assign_tmp = Assign(stop_var,  size-1+stop)
-        assign_stop = Assign(stop_var,  PyccelFloorDiv(stop_var, LiteralInteger(size)) )
+        if isinstance(size, LiteralInteger):
+            size = size.python_value
+
+        assign_tmp = Assign(stop_var,  PyccelAdd(LiteralInteger(size - 1),stop)) # TODO uncomment
+
+        if not isinstance(size, LiteralInteger):
+            size = LiteralInteger(size)
+
+        assign_stop = Assign(stop_var,  PyccelFloorDiv(stop_var, size))
 
         prelude = CodeBlock([assign_tmp, assign_stop])
         # ...
 
+        # ...
         iterable = PythonRange(start, stop_var, step)
+        # ...
 
-        return Basic.__new__(cls, target, iterable, prelude, inner)
+        # ...
+        self._target = target
+        self._iterable = iterable
+        self._inner = inner
+        self._prelude = prelude
+        # ...
+
+        super().__init__()
 
     @property
     def target(self):
-        return self._args[0]
+        return self._target
 
     @property
     def iterable(self):
-        return self._args[1]
+        return self._iterable
 
     @property
     def prelude(self):
-        return self._args[2]
+        return self._prelude
 
     @property
     def inner(self):
-        return self._args[3]
+        return self._inner
 
 # **********************************************************************************
 class SplittedFor(Basic):
-    def __new__(cls, outer, inner):
-        return Basic.__new__(cls, outer, inner)
+    _attribute_nodes = ('_inner','_outer')
+
+    def __init__(self, outer, inner):
+        self._inner = inner
+        self._outer = outer
+
+        super().__init__()
 
     @property
     def outer(self):
-        return self._args[0]
+        return self._outer
 
     @property
     def inner(self):
-        return self._args[1]
+        return self._inner
 
 # **********************************************************************************
 class Transform(object):
@@ -240,7 +268,7 @@ class Transform(object):
             # TODO shall we improve this?
             old = Variable('int', old)
 
-            expr = expr.subs(old, new)
+            expr.substitute(old, new)
 
         return expr
 
@@ -291,7 +319,7 @@ class Transform(object):
                             imports=f.imports,
                             decorators=f.decorators,
                             headers=f.headers,
-                            templates=f.templates,
+#                            templates=f.templates,
                             is_recursive=f.is_recursive,
                             is_pure=f.is_pure,
                             is_elemental=f.is_elemental,
@@ -418,12 +446,16 @@ class Transform(object):
                     return For(stmt.target, stmt.iterable, body)
 
                 else:
-                    return stmt.subs(old, new)
+                    stmt.substitute(old, new)
+                    print('>>> stmt = ', stmt)
+                    print('    old  = ', old)
+                    print('    new  = ', new)
+                    return stmt
             # ...
 
             body = []
-            for stmt in stmts:
-                for i in range(start, stop, step):
+            for i in range(start, stop, step):
+                for stmt in stmts:
                     # by doing this, we cannot evaluate/simplify the arithmetic expression
                     new = _subs_index(stmt, target, LiteralInteger(i))
 #                    new = _subs_index(stmt, target, i)
